@@ -1,0 +1,21 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Local data and training outputs
+data/
+outputs/
+
+# OS/editor noise
+.DS_Store
+.vscode/
+.idea/
