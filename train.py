@@ -93,10 +93,14 @@ def main() -> None:
     }
     if bnb_config is not None:
         model_kwargs["quantization_config"] = bnb_config
+        if torch.cuda.is_available():
+            # Explicit single-GPU placement for stable 4-bit runs.
+            model_kwargs["device_map"] = {"": 0}
     else:
         model_kwargs["torch_dtype"] = torch_dtype
 
     model = AutoModelForCausalLM.from_pretrained(args.base_model, **model_kwargs)
+    if torch.cuda.is_available() and bnb_config is None:
     if torch.cuda.is_available():
         try:
             model = model.to("cuda")
