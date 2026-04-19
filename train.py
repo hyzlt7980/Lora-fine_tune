@@ -36,6 +36,14 @@ def resolve_bnb_config(use_4bit: bool) -> BitsAndBytesConfig | None:
         return None
 
 
+def resolve_torch_dtype() -> torch.dtype:
+    if not torch.cuda.is_available():
+        return torch.float32
+    if torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float16
+
+
 def render_chat_example(tokenizer: AutoTokenizer, prompt: str, completion: str) -> str:
     user_content = prompt.replace("System: ", "").replace("User: ", "").replace("Assistant:", "").strip()
     assistant_content = completion.strip()
@@ -78,17 +86,24 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
 
     bnb_config = resolve_bnb_config(args.use_4bit)
+    torch_dtype = resolve_torch_dtype()
 
     model_kwargs = {
         "trust_remote_code": True,
-        "device_map": "auto",
     }
     if bnb_config is not None:
         model_kwargs["quantization_config"] = bnb_config
     else:
-        model_kwargs["torch_dtype"] = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        model_kwargs["torch_dtype"] = torch_dtype
 
     model = AutoModelForCausalLM.from_pretrained(args.base_model, **model_kwargs)
+    if torch.cuda.is_available():
+        try:
+            model = model.to("cuda")
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to move model to CUDA. Check CUDA-enabled PyTorch/bitsandbytes install."
+            ) from exc
 
     train_ds = load_dataset("json", data_files=str(train_file), split="train")
     required_columns = {"prompt", "completion"}
@@ -129,10 +144,11 @@ def main() -> None:
         "logging_steps": args.logging_steps,
         "save_steps": args.save_steps,
         "save_total_limit": 2,
-        "bf16": torch.cuda.is_available(),
-        "fp16": False,
+        "bf16": torch.cuda.is_available() and torch.cuda.is_bf16_supported(),
+        "fp16": torch.cuda.is_available() and not torch.cuda.is_bf16_supported(),
         "report_to": "none",
         "dataset_text_field": "text",
+        "dataloader_pin_memory": torch.cuda.is_available(),
     }
     sft_signature = inspect.signature(SFTConfig.__init__).parameters
     if "max_seq_length" in sft_signature:

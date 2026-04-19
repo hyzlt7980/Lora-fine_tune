@@ -61,6 +61,15 @@ What it does:
 - Prints sample transformed records.
 
 ## Training
+### Recommended cloud GPU setup
+- This project is intended primarily for a **single NVIDIA GPU** workflow (for example, **RTX 4090**).
+- Recommended first training run:
+```bash
+python train.py --use-4bit --per-device-batch-size 1 --gradient-accumulation-steps 16 --max-length 512
+```
+- The base model must still be downloaded on the first run.
+- 4-bit QLoRA reduces VRAM usage, but it does **not** remove the need to download base model weights.
+
 ### QLoRA (recommended when bitsandbytes 4-bit is available)
 ```bash
 python train.py \

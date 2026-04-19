@@ -32,10 +32,9 @@ def build_prompt(tokenizer: AutoTokenizer, user_prompt: str) -> str:
         )
 
 
-def generate(model, tokenizer, prompt: str, max_new_tokens: int = 220) -> str:
+def generate(model, tokenizer, device: torch.device, prompt: str, max_new_tokens: int = 220) -> str:
     full_prompt = build_prompt(tokenizer, prompt)
-    target_device = model.get_input_embeddings().weight.device
-    inputs = tokenizer(full_prompt, return_tensors="pt").to(target_device)
+    inputs = tokenizer(full_prompt, return_tensors="pt").to(device)
 
     with torch.no_grad():
         output_ids = model.generate(
@@ -47,8 +46,9 @@ def generate(model, tokenizer, prompt: str, max_new_tokens: int = 220) -> str:
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return response.split("Assistant:")[-1].strip()
+    input_len = inputs["input_ids"].shape[-1]
+    generated_ids = output_ids[0][input_len:]
+    return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
 def main() -> None:
@@ -62,22 +62,34 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:0" if use_cuda else "cpu")
+    dtype = torch.bfloat16 if use_cuda and torch.cuda.is_bf16_supported() else (
+        torch.float16 if use_cuda else torch.float32
+    )
 
     base_model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         trust_remote_code=True,
         torch_dtype=dtype,
-        device_map="auto",
     )
+    base_model = base_model.to(device)
     base_model.eval()
+
+    base_outputs: list[str] = []
+    for prompt in TEST_PROMPTS:
+        base_outputs.append(generate(base_model, tokenizer, device, prompt, max_new_tokens=args.max_new_tokens))
+
+    del base_model
+    if use_cuda:
+        torch.cuda.empty_cache()
 
     tuned_base = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         trust_remote_code=True,
         torch_dtype=dtype,
-        device_map="auto",
     )
+    tuned_base = tuned_base.to(device)
     try:
         tuned_model = PeftModel.from_pretrained(tuned_base, args.adapter_path)
     except Exception as exc:
@@ -92,11 +104,10 @@ def main() -> None:
         print(f"Prompt {i}: {prompt}")
         print("-" * 100)
 
-        base_output = generate(base_model, tokenizer, prompt, max_new_tokens=args.max_new_tokens)
-        tuned_output = generate(tuned_model, tokenizer, prompt, max_new_tokens=args.max_new_tokens)
+        tuned_output = generate(tuned_model, tokenizer, device, prompt, max_new_tokens=args.max_new_tokens)
 
         print("[Base Model]")
-        print(base_output)
+        print(base_outputs[i - 1])
         print("\n[Fine-tuned Adapter]")
         print(tuned_output)
 

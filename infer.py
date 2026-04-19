@@ -40,13 +40,17 @@ def main() -> None:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:0" if use_cuda else "cpu")
+    dtype = torch.bfloat16 if use_cuda and torch.cuda.is_bf16_supported() else (
+        torch.float16 if use_cuda else torch.float32
+    )
     base_model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
         trust_remote_code=True,
         torch_dtype=dtype,
-        device_map="auto",
     )
+    base_model = base_model.to(device)
     try:
         model = PeftModel.from_pretrained(base_model, args.adapter_path)
     except Exception as exc:
@@ -58,8 +62,7 @@ def main() -> None:
 
     prompt = build_prompt(tokenizer, args.prompt)
 
-    target_device = model.get_input_embeddings().weight.device
-    inputs = tokenizer(prompt, return_tensors="pt").to(target_device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
@@ -70,8 +73,9 @@ def main() -> None:
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    answer = response.split("Assistant:")[-1].strip()
+    input_len = inputs["input_ids"].shape[-1]
+    generated_ids = output_ids[0][input_len:]
+    answer = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
     print("\n=== Prompt ===")
     print(args.prompt)
