@@ -101,6 +101,7 @@ def main() -> None:
 
     model = AutoModelForCausalLM.from_pretrained(args.base_model, **model_kwargs)
     if torch.cuda.is_available() and bnb_config is None:
+    if torch.cuda.is_available():
         try:
             model = model.to("cuda")
         except Exception as exc:
