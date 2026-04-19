@@ -46,8 +46,9 @@ def generate(model, tokenizer, device: torch.device, prompt: str, max_new_tokens
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return response.split("Assistant:")[-1].strip()
+    input_len = inputs["input_ids"].shape[-1]
+    generated_ids = output_ids[0][input_len:]
+    return tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
 
 def main() -> None:

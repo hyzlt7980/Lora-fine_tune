@@ -73,8 +73,9 @@ def main() -> None:
             eos_token_id=tokenizer.eos_token_id,
         )
 
-    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    answer = response.split("Assistant:")[-1].strip()
+    input_len = inputs["input_ids"].shape[-1]
+    generated_ids = output_ids[0][input_len:]
+    answer = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
     print("\n=== Prompt ===")
     print(args.prompt)
